@@ -15,6 +15,9 @@ class FlightDisplay {
   // Show a title screen (e.g. "LHR ARRIVALS" or error message).
   void ShowTitle(const std::string& line1, const std::string& line2 = "");
 
+  // Show a single approach flight (nearest to observer).
+  void ShowApproachFlight(const Flight& flight);
+
   // Cycle through flights, showing each for display_seconds.
   void ShowFlights(const std::vector<Flight>& flights, int display_seconds);
 

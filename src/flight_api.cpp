@@ -1,5 +1,7 @@
 #include "flight_api.h"
 
+#include "geo.h"
+
 #include <nlohmann/json.hpp>
 
 #include <curl/curl.h>
@@ -15,11 +17,48 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* out
 }
 
 std::string ExtractTime(const std::string& datetime) {
-  // Aviationstack returns "2026-07-03T14:30:00+00:00" — show HH:MM in UTC.
   if (datetime.size() >= 16) {
     return datetime.substr(11, 5);
   }
   return datetime;
+}
+
+bool JsonToDouble(const nlohmann::json& value, double* out) {
+  if (value.is_null() || !out) {
+    return false;
+  }
+  if (value.is_number()) {
+    *out = value.get<double>();
+    return true;
+  }
+  if (value.is_string()) {
+    try {
+      *out = std::stod(value.get<std::string>());
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+  return false;
+}
+
+bool JsonToInt(const nlohmann::json& value, int* out) {
+  if (value.is_null() || !out) {
+    return false;
+  }
+  if (value.is_number()) {
+    *out = static_cast<int>(value.get<double>());
+    return true;
+  }
+  if (value.is_string()) {
+    try {
+      *out = std::stoi(value.get<std::string>());
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+  return false;
 }
 
 Flight ParseFlight(const nlohmann::json& item) {
@@ -74,6 +113,28 @@ Flight ParseFlight(const nlohmann::json& item) {
     f.status = item["flight_status"].get<std::string>();
   }
 
+  if (item.contains("live") && item["live"].is_object()) {
+    const auto& live = item["live"];
+    double lat = 0;
+    double lon = 0;
+    int altitude = 0;
+    int speed = 0;
+
+    if (JsonToDouble(live.value("latitude", nlohmann::json()), &lat) &&
+        JsonToDouble(live.value("longitude", nlohmann::json()), &lon) &&
+        lat != 0 && lon != 0) {
+      f.has_position = true;
+      f.latitude = lat;
+      f.longitude = lon;
+      if (JsonToInt(live.value("altitude", nlohmann::json()), &altitude)) {
+        f.altitude_ft = altitude;
+      }
+      if (JsonToInt(live.value("speed_horizontal", nlohmann::json()), &speed)) {
+        f.speed_kmh = speed;
+      }
+    }
+  }
+
   if (f.flight_number.empty()) {
     f.flight_number = "???";
   }
@@ -84,29 +145,18 @@ Flight ParseFlight(const nlohmann::json& item) {
   return f;
 }
 
-}  // namespace
-
-const std::string& GetLastError() { return g_last_error; }
-
-std::vector<Flight> FetchHeathrowArrivals(const std::string& api_key, int limit) {
-  g_last_error.clear();
-  std::vector<Flight> flights;
-
-  if (api_key.empty()) {
-    g_last_error = "No API key provided";
-    return flights;
-  }
-
+std::string FetchActiveArrivals(const std::string& api_key) {
   std::ostringstream url;
   url << "https://api.aviationstack.com/v1/flights"
       << "?access_key=" << api_key
       << "&arr_iata=LHR"
-      << "&limit=" << limit;
+      << "&flight_status=active"
+      << "&limit=100";
 
   CURL* curl = curl_easy_init();
   if (!curl) {
     g_last_error = "Failed to init curl";
-    return flights;
+    return {};
   }
 
   std::string response;
@@ -123,12 +173,46 @@ std::vector<Flight> FetchHeathrowArrivals(const std::string& api_key, int limit)
 
   if (res != CURLE_OK) {
     g_last_error = std::string("HTTP request failed: ") + curl_easy_strerror(res);
-    return flights;
+    return {};
   }
 
   if (http_code != 200) {
     g_last_error = "HTTP " + std::to_string(http_code) + ": " + response.substr(0, 200);
-    return flights;
+    return {};
+  }
+
+  return response;
+}
+
+bool MatchesApproachFilters(const Flight& flight, const ApproachSearch& search) {
+  if (!flight.has_position) {
+    return false;
+  }
+  if (flight.altitude_ft > search.max_altitude_ft) {
+    return false;
+  }
+  if (flight.altitude_ft > 0 && flight.altitude_ft < search.min_altitude_ft) {
+    return false;
+  }
+  return flight.distance_km <= search.max_distance_km;
+}
+
+}  // namespace
+
+const std::string& GetLastError() { return g_last_error; }
+
+std::optional<Flight> FindNearestApproachFlight(const std::string& api_key,
+                                                const ApproachSearch& search) {
+  g_last_error.clear();
+
+  if (api_key.empty()) {
+    g_last_error = "No API key provided";
+    return std::nullopt;
+  }
+
+  const std::string response = FetchActiveArrivals(api_key);
+  if (response.empty()) {
+    return std::nullopt;
   }
 
   try {
@@ -136,31 +220,65 @@ std::vector<Flight> FetchHeathrowArrivals(const std::string& api_key, int limit)
 
     if (json.contains("error")) {
       g_last_error = json["error"].value("message", "API error");
-      return flights;
+      return std::nullopt;
     }
 
     if (!json.contains("data") || !json["data"].is_array()) {
       g_last_error = "Unexpected API response format";
-      return flights;
+      return std::nullopt;
     }
+
+    std::optional<Flight> nearest;
+    double nearest_distance = 0;
 
     for (const auto& item : json["data"]) {
-      flights.push_back(ParseFlight(item));
+      Flight flight = ParseFlight(item);
+      if (!flight.has_position) {
+        continue;
+      }
+
+      flight.distance_km = HaversineDistanceKm(
+          search.observer_lat, search.observer_lon,
+          flight.latitude, flight.longitude);
+
+      if (!MatchesApproachFilters(flight, search)) {
+        continue;
+      }
+
+      if (!nearest || flight.distance_km < nearest_distance) {
+        nearest = flight;
+        nearest_distance = flight.distance_km;
+      }
     }
+
+    if (!nearest) {
+      g_last_error = "No active arrivals with position within range";
+    }
+
+    return nearest;
   } catch (const std::exception& e) {
     g_last_error = std::string("JSON parse error: ") + e.what();
+    return std::nullopt;
   }
-
-  return flights;
 }
 
-std::vector<Flight> GetMockArrivals() {
-  return {
-      {"BA178", "British Airways", "JFK", "New York", "14:30", "14:45", "active", "5", "A12", 15},
-      {"EK001", "Emirates", "DXB", "Dubai", "15:10", "15:10", "scheduled", "3", "B08", 0},
-      {"LH921", "Lufthansa", "FRA", "Frankfurt", "15:25", "15:40", "active", "2", "C15", 15},
-      {"AF1280", "Air France", "CDG", "Paris", "15:50", "15:50", "landed", "4", "D22", 0},
-      {"QR003", "Qatar Airways", "DOH", "Doha", "16:05", "16:20", "active", "4", "A05", 15},
-      {"SQ317", "Singapore Airlines", "SIN", "Singapore", "16:30", "16:30", "scheduled", "2", "B18", 0},
-  };
+std::optional<Flight> GetMockNearestFlight(const ApproachSearch& search) {
+  Flight f;
+  f.flight_number = "BA258";
+  f.airline = "British Airways";
+  f.origin_iata = "BOS";
+  f.origin_name = "Boston";
+  f.scheduled_arrival = "15:10";
+  f.estimated_arrival = "15:08";
+  f.status = "active";
+  f.terminal = "5";
+  f.gate = "A22";
+  f.has_position = true;
+  f.latitude = search.observer_lat + 0.003;
+  f.longitude = search.observer_lon + 0.002;
+  f.altitude_ft = 2800;
+  f.speed_kmh = 320;
+  f.distance_km = HaversineDistanceKm(
+      search.observer_lat, search.observer_lon, f.latitude, f.longitude);
+  return f;
 }

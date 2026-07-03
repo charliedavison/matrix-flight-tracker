@@ -7,6 +7,7 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -31,6 +32,16 @@ int GetEnvInt(const char* name, int fallback) {
   }
 }
 
+double GetEnvDouble(const char* name, double fallback) {
+  const char* val = std::getenv(name);
+  if (!val) return fallback;
+  try {
+    return std::stod(val);
+  } catch (...) {
+    return fallback;
+  }
+}
+
 // Load KEY=VALUE pairs from a .env file (simple parser, no quotes).
 void LoadEnvFile(const std::string& path) {
   std::ifstream file(path);
@@ -45,7 +56,6 @@ void LoadEnvFile(const std::string& path) {
     std::string key = line.substr(0, eq);
     std::string val = line.substr(eq + 1);
 
-    // Trim whitespace
     while (!val.empty() && (val.back() == '\r' || val.back() == ' ')) {
       val.pop_back();
     }
@@ -69,6 +79,16 @@ std::string FindFontPath() {
   return "fonts/4x6.bdf";
 }
 
+ApproachSearch LoadApproachSearch() {
+  ApproachSearch search;
+  search.observer_lat = GetEnvDouble("OBSERVER_LAT", 51.4465501);
+  search.observer_lon = GetEnvDouble("OBSERVER_LON", -0.2407212);
+  search.max_distance_km = GetEnvDouble("MAX_DISTANCE_KM", 25);
+  search.max_altitude_ft = GetEnvInt("MAX_ALTITUDE_FT", 12000);
+  search.min_altitude_ft = GetEnvInt("MIN_ALTITUDE_FT", 500);
+  return search;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -78,9 +98,9 @@ int main(int argc, char* argv[]) {
   LoadEnvFile(".env");
 
   const std::string api_key = GetEnv("AVIATIONSTACK_API_KEY");
-  const int poll_interval = GetEnvInt("POLL_INTERVAL_SEC", 900);
-  const int display_seconds = GetEnvInt("DISPLAY_SECONDS", 8);
+  const int poll_interval = GetEnvInt("POLL_INTERVAL_SEC", 60);
   const bool use_mock = GetEnv("USE_MOCK", api_key.empty() ? "1" : "0") == "1";
+  const ApproachSearch search = LoadApproachSearch();
 
   rgb_matrix::RGBMatrix::Options matrix_options;
   rgb_matrix::RuntimeOptions runtime_options;
@@ -96,36 +116,41 @@ int main(int argc, char* argv[]) {
 
   FlightDisplay display(matrix, FindFontPath());
 
-  fprintf(stderr, "Heathrow arrivals display starting\n");
+  fprintf(stderr, "Heathrow approach tracker starting\n");
   fprintf(stderr, "  Mode: %s\n", use_mock ? "mock data" : "live API");
+  fprintf(stderr, "  Observer: %.6f, %.6f\n", search.observer_lat,
+          search.observer_lon);
+  fprintf(stderr, "  Search radius: %.1f km, altitude %d-%d ft\n",
+          search.max_distance_km, search.min_altitude_ft,
+          search.max_altitude_ft);
   fprintf(stderr, "  Poll interval: %ds\n", poll_interval);
 
   while (g_running) {
-    std::vector<Flight> flights;
+    display.ShowTitle("NEAREST", "Searching...");
 
+    std::optional<Flight> nearest;
     if (use_mock) {
-      flights = GetMockArrivals();
-      display.ShowTitle("LHR ARRIVALS", "DEMO MODE");
-      sleep(3);
+      nearest = GetMockNearestFlight(search);
     } else {
-      display.ShowTitle("LHR ARRIVALS", "Fetching...");
-      flights = FetchHeathrowArrivals(api_key, 10);
-
-      if (flights.empty()) {
-        std::string err = GetLastError();
-        fprintf(stderr, "API error: %s\n", err.c_str());
-        display.ShowTitle("API ERROR", err.substr(0, 20));
-        sleep(10);
-        continue;
-      }
-
-      fprintf(stderr, "Fetched %zu flights\n", flights.size());
+      nearest = FindNearestApproachFlight(api_key, search);
     }
 
-    display.ShowFlights(flights, display_seconds);
+    if (!nearest) {
+      std::string err = GetLastError();
+      fprintf(stderr, "No approach flight: %s\n", err.c_str());
+      display.ShowTitle("NO FLIGHT", err.substr(0, 20));
+      for (int i = 0; i < poll_interval && g_running; ++i) {
+        sleep(1);
+      }
+      continue;
+    }
 
-    // Wait until next poll, but check for shutdown every second.
+    fprintf(stderr, "Tracking %s %.1fkm away at %dft\n",
+            nearest->flight_number.c_str(), nearest->distance_km,
+            nearest->altitude_ft);
+
     for (int i = 0; i < poll_interval && g_running; ++i) {
+      display.ShowApproachFlight(*nearest);
       sleep(1);
     }
   }

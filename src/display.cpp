@@ -2,7 +2,9 @@
 
 #include <unistd.h>
 
+#include <cmath>
 #include <sstream>
+#include <iomanip>
 
 FlightDisplay::FlightDisplay(rgb_matrix::RGBMatrix* matrix,
                              const std::string& font_path)
@@ -45,6 +47,74 @@ void FlightDisplay::ShowTitle(const std::string& line1,
   if (!line2.empty()) {
     DrawLine(20, line2, rgb_matrix::Color(180, 180, 180));
   }
+  canvas_ = matrix_->SwapOnVSync(canvas_);
+}
+
+namespace {
+
+std::string FormatDistance(double km) {
+  if (km < 1.0) {
+    return std::to_string(static_cast<int>(std::round(km * 1000))) + "m";
+  }
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(1) << km << "km";
+  return out.str();
+}
+
+}  // namespace
+
+void FlightDisplay::ShowApproachFlight(const Flight& flight) {
+  const rgb_matrix::Color white(220, 220, 220);
+  const rgb_matrix::Color dim(120, 120, 120);
+
+  Clear();
+
+  DrawLine(7, flight.flight_number, rgb_matrix::Color(255, 220, 0));
+
+  std::string origin = flight.origin_iata;
+  if (!flight.origin_name.empty()) {
+    std::string name = flight.origin_name;
+    if (name.size() > 10) {
+      name = name.substr(0, 10);
+    }
+    origin += " " + name;
+  }
+  DrawLine(17, origin, white);
+
+  std::ostringstream position;
+  position << FormatDistance(flight.distance_km);
+  if (flight.altitude_ft > 0) {
+    position << " " << flight.altitude_ft << "ft";
+  }
+  DrawLine(27, position.str(), rgb_matrix::Color(80, 200, 255));
+
+  std::ostringstream motion;
+  if (flight.speed_kmh > 0) {
+    motion << flight.speed_kmh << "km/h";
+  }
+  std::string eta = flight.estimated_arrival.empty()
+                        ? flight.scheduled_arrival
+                        : flight.estimated_arrival;
+  if (!eta.empty()) {
+    if (motion.tellp() > 0) {
+      motion << " ETA" << eta;
+    } else {
+      motion << "ETA " << eta;
+    }
+  }
+  if (motion.tellp() == 0) {
+    motion << flight.status;
+  }
+  DrawLine(37, motion.str(), StatusColor(flight));
+
+  std::string airline = flight.airline;
+  if (airline.size() > 14) {
+    airline = airline.substr(0, 14);
+  }
+  if (!airline.empty()) {
+    DrawLine(47, airline, dim);
+  }
+
   canvas_ = matrix_->SwapOnVSync(canvas_);
 }
 

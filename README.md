@@ -1,18 +1,18 @@
-# Heathrow Flight Tracker
+# Heathrow Approach Tracker
 
-A C++ app for Raspberry Pi that shows incoming flight details on a 64×64 RGB LED matrix with an Adafruit Matrix Bonnet.
+A C++ app for Raspberry Pi that shows the flight passing nearest your location on approach to Heathrow, on a 64×64 RGB LED matrix with an Adafruit Matrix Bonnet.
 
 ```
 ┌──────────────────────────────┐
-│  BA178                       │  flight number
-│  JFK New York                │  origin
-│  ETA 14:45 +15m              │  arrival (colour = status)
-│  T5 G A12 active             │  terminal / gate
+│  BA258                       │  flight number
+│  BOS Boston                  │  origin
+│  1.2km 2800ft                │  distance + altitude
+│  320km/h ETA15:08            │  speed + ETA
 │  British Airways             │  airline
 └──────────────────────────────┘
 ```
 
-Each flight is shown for a few seconds, then the display cycles to the next. Data refreshes on a configurable interval.
+The display tracks the nearest active LHR arrival with live position data within range of your coordinates, refreshing every poll interval.
 
 ## Hardware
 
@@ -50,11 +50,15 @@ nano .env
 | Variable | Default | Description |
 |---|---|---|
 | `AVIATIONSTACK_API_KEY` | — | Free key from [aviationstack.com](https://aviationstack.com/signup) |
-| `POLL_INTERVAL_SEC` | `900` | Seconds between API refreshes |
-| `DISPLAY_SECONDS` | `8` | Seconds to show each flight |
+| `OBSERVER_LAT` | `51.4465501` | Your latitude |
+| `OBSERVER_LON` | `-0.2407212` | Your longitude |
+| `MAX_DISTANCE_KM` | `25` | Search radius around your location |
+| `MAX_ALTITUDE_FT` | `12000` | Ignore aircraft above this (cruise) |
+| `MIN_ALTITUDE_FT` | `500` | Ignore aircraft below this (on ground) |
+| `POLL_INTERVAL_SEC` | `60` | Seconds between API refreshes |
 | `USE_MOCK` | `1` if no key | Set to `1` for demo data, `0` for live API |
 
-**API quota:** the free Aviationstack plan allows 100 requests/month. At the default 15-minute poll interval that's ~2,880 requests/month — you'll need a paid plan for frequent live updates, or increase `POLL_INTERVAL_SEC` to ~26,000 (about one request every 7 hours) to stay within the free tier. For development, use `USE_MOCK=1`.
+**API quota:** the free Aviationstack plan allows 100 requests/month. At the default 60-second poll interval that's ~43,200 requests/month — you'll need a paid plan for live tracking, or increase `POLL_INTERVAL_SEC` significantly. For development, use `USE_MOCK=1`.
 
 ## Running
 
@@ -78,32 +82,33 @@ On Pi Zero, `--led-slowdown-gpio=0` or `1` may also help — experiment with val
 
 Press `Ctrl+C` to stop.
 
+## How it works
+
+1. Fetches all **active** flights arriving at LHR with live position data from Aviationstack.
+2. Filters to aircraft within your configured distance and altitude band (approach phase).
+3. Picks the one **nearest** your `OBSERVER_LAT` / `OBSERVER_LON`.
+4. Displays it until the next poll.
+
+If no aircraft match (e.g. nothing overhead right now), the display shows "NO FLIGHT".
+
 ## Project structure
 
 ```
 src/
   main.cpp        — main loop, config, signal handling
-  flight_api.cpp  — Aviationstack HTTP client
+  flight_api.cpp  — Aviationstack client + nearest-flight search
   display.cpp     — matrix rendering
+  geo.h           — haversine distance calculation
   flight.h        — flight data model
 scripts/
   setup.sh        — one-shot Pi setup and build
 ```
 
-## Status colours
-
-| Status | Colour |
-|---|---|
-| Landed | Green |
-| Active (in flight) | Blue |
-| Delayed | Orange |
-| Cancelled | Red |
-| Scheduled | Grey |
-
 ## Troubleshooting
 
 - **Blank display** — check E-line solder jumper and power supply.
 - **Garbled pixels** — try `--led-multiplexing=0` and `--led-gpio-mapping=adafruit-hat`.
+- **"NO FLIGHT"** — normal when nothing is on approach near you; try widening `MAX_DISTANCE_KM` or `MAX_ALTITUDE_FT`.
 - **API errors** — verify your key in `.env`; check stderr for details.
 - **Font not found** — run from the project root so `third_party/rpi-rgb-led-matrix/fonts/4x6.bdf` is found.
 
