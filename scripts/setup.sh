@@ -28,7 +28,10 @@ if [ ! -f third_party/json/include/nlohmann/json.hpp ]; then
     -o third_party/json/include/nlohmann/json.hpp
 fi
 
-echo "==> Building..."
+echo "==> Building rpi-rgb-led-matrix..."
+make -C third_party/rpi-rgb-led-matrix/lib -j"$(nproc)"
+
+echo "==> Building heathrow-flights..."
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 

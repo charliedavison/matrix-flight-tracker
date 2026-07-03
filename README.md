@@ -36,7 +36,7 @@ chmod +x scripts/setup.sh
 ./scripts/setup.sh
 ```
 
-This installs build dependencies, clones [rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix), downloads the JSON library, and builds the app.
+This installs build dependencies, clones [rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix), downloads the JSON library, and builds the app. The matrix library is built with its own Makefile (not CMake) because upstream's CMakeLists breaks when used as a subdirectory.
 
 ## Configuration
 
