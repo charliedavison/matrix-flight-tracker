@@ -87,8 +87,8 @@ int main(int argc, char* argv[]) {
   runtime_options.do_gpio_init = true;
 
   rgb_matrix::RGBMatrix* matrix =
-      rgb_matrix::RGBMatrix::InitFromArgv(&argc, &argv, &matrix_options,
-                                          &runtime_options);
+      rgb_matrix::RGBMatrix::CreateFromFlags(&argc, &argv, &matrix_options,
+                                             &runtime_options);
   if (!matrix) {
     fprintf(stderr, "Failed to initialize RGB matrix\n");
     return 1;
