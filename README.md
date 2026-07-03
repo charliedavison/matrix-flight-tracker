@@ -49,16 +49,18 @@ nano .env
 
 | Variable | Default | Description |
 |---|---|---|
-| `AVIATIONSTACK_API_KEY` | — | Free key from [aviationstack.com](https://aviationstack.com/signup) |
+| `DATA_SOURCE` | `opensky` | `opensky` (position) or `aviationstack` |
+| `AVIATIONSTACK_API_KEY` | — | Enriches OpenSky tracks with airline, origin, ETA, gate |
 | `OBSERVER_LAT` | `51.4465501` | Your latitude |
 | `OBSERVER_LON` | `-0.2407212` | Your longitude |
 | `MAX_DISTANCE_KM` | `25` | Search radius around your location |
 | `MAX_ALTITUDE_FT` | `12000` | Ignore aircraft above this (cruise) |
 | `MIN_ALTITUDE_FT` | `500` | Ignore aircraft below this (on ground) |
-| `POLL_INTERVAL_SEC` | `60` | Seconds between API refreshes |
-| `USE_MOCK` | `1` if no key | Set to `1` for demo data, `0` for live API |
+| `POLL_INTERVAL_SEC` | `60` | Seconds between refreshes |
+| `DEBUG_FLIGHTS` | `0` | Set to `1` to log filter stats to stderr |
+| `USE_MOCK` | `0` | Set to `1` for demo data |
 
-**API quota:** the free Aviationstack plan allows 100 requests/month. At the default 60-second poll interval that's ~43,200 requests/month — you'll need a paid plan for live tracking, or increase `POLL_INTERVAL_SEC` significantly. For development, use `USE_MOCK=1`.
+**Data sources:** [OpenSky Network](https://opensky-network.org) provides live positions (no API key needed). If you set `AVIATIONSTACK_API_KEY`, flight details (airline, origin airport, ETA, terminal, gate) are looked up by matching the aircraft's callsign to active LHR arrivals.
 
 ## Running
 
@@ -84,12 +86,11 @@ Press `Ctrl+C` to stop.
 
 ## How it works
 
-1. Fetches all **active** flights arriving at LHR with live position data from Aviationstack.
-2. Filters to aircraft within your configured distance and altitude band (approach phase).
-3. Picks the one **nearest** your `OBSERVER_LAT` / `OBSERVER_LON`.
-4. Displays it until the next poll.
+1. Queries OpenSky for aircraft near your location (live position).
+2. Matches the nearest aircraft's callsign (e.g. `BAW573`) to Aviationstack flight data for active LHR arrivals.
+3. Displays the enriched flight: number, origin, distance, altitude, terminal/gate, airline.
 
-If no aircraft match (e.g. nothing overhead right now), the display shows "NO FLIGHT".
+If no aircraft match (e.g. nothing overhead right now), the display shows "NO FLIGHT". Set `DEBUG_FLIGHTS=1` in `.env` to see how many aircraft were found and filtered on stderr.
 
 ## Project structure
 

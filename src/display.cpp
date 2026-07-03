@@ -89,17 +89,30 @@ void FlightDisplay::ShowApproachFlight(const Flight& flight) {
   DrawLine(27, position.str(), rgb_matrix::Color(80, 200, 255));
 
   std::ostringstream motion;
-  if (flight.speed_kmh > 0) {
-    motion << flight.speed_kmh << "km/h";
-  }
-  std::string eta = flight.estimated_arrival.empty()
-                        ? flight.scheduled_arrival
-                        : flight.estimated_arrival;
-  if (!eta.empty()) {
-    if (motion.tellp() > 0) {
-      motion << " ETA" << eta;
-    } else {
-      motion << "ETA " << eta;
+  if (!flight.terminal.empty() || !flight.gate.empty()) {
+    if (!flight.terminal.empty()) {
+      motion << "T" << flight.terminal;
+    }
+    if (!flight.gate.empty()) {
+      if (motion.tellp() > 0) {
+        motion << " G" << flight.gate;
+      } else {
+        motion << "G" << flight.gate;
+      }
+    }
+  } else {
+    if (flight.speed_kmh > 0) {
+      motion << flight.speed_kmh << "km/h";
+    }
+    std::string eta = flight.estimated_arrival.empty()
+                          ? flight.scheduled_arrival
+                          : flight.estimated_arrival;
+    if (!eta.empty()) {
+      if (motion.tellp() > 0) {
+        motion << " ETA" << eta;
+      } else {
+        motion << "ETA " << eta;
+      }
     }
   }
   if (motion.tellp() == 0) {

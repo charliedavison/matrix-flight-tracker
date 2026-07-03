@@ -3,7 +3,8 @@
 #include <string>
 
 struct Flight {
-  std::string flight_number;   // e.g. "BA123"
+  std::string callsign;          // raw ADS-B callsign, e.g. "BAW573"
+  std::string flight_number;   // e.g. "BA573"
   std::string airline;         // e.g. "British Airways"
   std::string origin_iata;     // e.g. "JFK"
   std::string origin_name;       // e.g. "New York"

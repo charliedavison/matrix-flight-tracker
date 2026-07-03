@@ -98,9 +98,11 @@ int main(int argc, char* argv[]) {
   LoadEnvFile(".env");
 
   const std::string api_key = GetEnv("AVIATIONSTACK_API_KEY");
+  const std::string data_source = GetEnv("DATA_SOURCE", "opensky");
   const int poll_interval = GetEnvInt("POLL_INTERVAL_SEC", 60);
-  const bool use_mock = GetEnv("USE_MOCK", api_key.empty() ? "1" : "0") == "1";
-  const ApproachSearch search = LoadApproachSearch();
+  const bool use_mock = GetEnv("USE_MOCK", "0") == "1";
+  ApproachSearch search = LoadApproachSearch();
+  search.debug = GetEnv("DEBUG_FLIGHTS", "0") == "1";
 
   rgb_matrix::RGBMatrix::Options matrix_options;
   rgb_matrix::RuntimeOptions runtime_options;
@@ -117,7 +119,10 @@ int main(int argc, char* argv[]) {
   FlightDisplay display(matrix, FindFontPath());
 
   fprintf(stderr, "Heathrow approach tracker starting\n");
-  fprintf(stderr, "  Mode: %s\n", use_mock ? "mock data" : "live API");
+  fprintf(stderr, "  Mode: %s\n", use_mock ? "mock data" : data_source.c_str());
+  if (!use_mock && !api_key.empty()) {
+    fprintf(stderr, "  Enrichment: aviationstack (flight details)\n");
+  }
   fprintf(stderr, "  Observer: %.6f, %.6f\n", search.observer_lat,
           search.observer_lon);
   fprintf(stderr, "  Search radius: %.1f km, altitude %d-%d ft\n",
@@ -132,7 +137,7 @@ int main(int argc, char* argv[]) {
     if (use_mock) {
       nearest = GetMockNearestFlight(search);
     } else {
-      nearest = FindNearestApproachFlight(api_key, search);
+      nearest = FindNearestApproachFlight(search, data_source, api_key);
     }
 
     if (!nearest) {
