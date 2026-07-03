@@ -19,7 +19,7 @@ void FlightDisplay::Clear() {
 
 void FlightDisplay::DrawLine(int y, const std::string& text,
                              rgb_matrix::Color color) {
-  rgb_matrix::DrawText(canvas_, font_, 0, y, color, text.c_str(), 0);
+  rgb_matrix::DrawText(canvas_, font_, 0, y, color, nullptr, text.c_str());
 }
 
 rgb_matrix::Color FlightDisplay::StatusColor(const Flight& flight) const {
@@ -113,12 +113,11 @@ void FlightDisplay::ShowFlights(const std::vector<Flight>& flights,
 
 void FlightDisplay::ScrollText(const std::string& text,
                                rgb_matrix::Color color, int speed_ms) {
-  const int text_width = rgb_matrix::DrawText(canvas_, font_, 0, 0, color,
-                                              text.c_str(), 0);
+  const int text_width = rgb_matrix::MeasureText(font_, text.c_str());
 
   for (int x = matrix_->width(); x > -text_width; --x) {
     Clear();
-    rgb_matrix::DrawText(canvas_, font_, x, 12, color, text.c_str(), 0);
+    rgb_matrix::DrawText(canvas_, font_, x, 12, color, nullptr, text.c_str());
     canvas_ = matrix_->SwapOnVSync(canvas_);
     usleep(speed_ms * 1000);
   }
